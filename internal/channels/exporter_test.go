@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/mdlayher/nixos_channel_exporter/internal/channels"
@@ -18,10 +19,30 @@ func TestExporter(t *testing.T) {
 		name    string
 		d       channels.Data
 		handler http.HandlerFunc
+		ok      bool
 		metrics []string
 	}{
 		{
+			name: "bad HTTP status",
+			d: channels.Data{
+				Channels: map[string]channels.Channel{
+					"nixos-unstable": {
+						Job:     "nixos/trunk-combined/tested",
+						Current: true,
+					},
+				},
+			},
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				http.NotFound(w, r)
+			},
+		},
+		{
 			name: "no data",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				panic("should never be called")
+			},
+			// Technically OK due to no inputs.
+			ok: true,
 		},
 		{
 			name: "multiple channels",
@@ -59,6 +80,7 @@ func TestExporter(t *testing.T) {
 				s := hex.EncodeToString(bytes.Repeat([]byte{b}, 20))
 				_, _ = io.WriteString(w, s)
 			},
+			ok: true,
 			metrics: []string{
 				`channel_revision{channel="nixos-unstable",revision="1111111111111111111111111111111111111111"} 1`,
 				`channel_revision{channel="nixos-unstable-small",revision="2222222222222222222222222222222222222222"} 1`,
@@ -82,6 +104,18 @@ func TestExporter(t *testing.T) {
 			// Gather metrics and verify them for correctness.
 			b := promtest.Collect(t, e)
 
+			if !tt.ok {
+				// Collection should have failed with some kind of error output
+				// from the Prometheus client library.
+				if !strings.Contains(string(b), "error collecting metric") {
+					t.Fatal("expected Prometheus client library error, but did not find one")
+				}
+
+				return
+			}
+
+			// Collection succeeded, verify the correctness of the output
+			// metrics.
 			if !promtest.Lint(t, b) {
 				t.Fatalf("failed to lint metrics: %v", err)
 			}

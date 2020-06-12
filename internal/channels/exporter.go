@@ -93,6 +93,10 @@ func (e *Exporter) collect(ch chan<- prometheus.Metric, channel string, meta Cha
 	}
 	defer res.Body.Close()
 
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected response: HTTP %d %s", res.StatusCode, res.Status)
+	}
+
 	// The HTTP body should just contain a git commit hash, so assume it will
 	// not be very large in size.
 	rev, err := ioutil.ReadAll(io.LimitReader(res.Body, 128))
