@@ -20,6 +20,7 @@ var _ prometheus.Collector = &Exporter{}
 type Exporter struct {
 	ChannelRevision   *prometheus.Desc
 	ChannelUpdateTime *prometheus.Desc
+	ChannelCurrent    *prometheus.Desc
 
 	base   url.URL
 	data   Data
@@ -65,6 +66,13 @@ func NewExporter(data Data, baseURL string, client *http.Client) (prometheus.Col
 			nil,
 		),
 
+		ChannelCurrent: prometheus.NewDesc(
+			"channel_current",
+			"Reports whether or not a channel is expected to be current.",
+			[]string{"channel"},
+			nil,
+		),
+
 		base:   *base,
 		data:   data,
 		client: client,
@@ -76,6 +84,7 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	ds := []*prometheus.Desc{
 		e.ChannelRevision,
 		e.ChannelUpdateTime,
+		e.ChannelCurrent,
 	}
 
 	for _, d := range ds {
@@ -169,5 +178,20 @@ func (e *Exporter) collect(ctx context.Context, ch chan<- prometheus.Metric, cha
 		)
 	}
 
+	ch <- prometheus.MustNewConstMetric(
+		e.ChannelCurrent,
+		prometheus.GaugeValue,
+		boolFloat(meta.Current),
+		channel,
+	)
+
 	return nil
+}
+
+func boolFloat(b bool) float64 {
+	if b {
+		return 1.0
+	}
+
+	return 0.0
 }

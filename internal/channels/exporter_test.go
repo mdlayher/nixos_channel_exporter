@@ -92,6 +92,9 @@ func TestExporter(t *testing.T) {
 			},
 			ok: true,
 			metrics: []string{
+				`channel_current{channel="nixos-unstable"} 1`,
+				`channel_current{channel="nixos-unstable-small"} 1`,
+				`channel_current{channel="nixpkgs-unstable"} 0`,
 				`channel_revision{channel="nixos-unstable",revision="1111111111111111111111111111111111111111"} 1`,
 				`channel_revision{channel="nixos-unstable-small",revision="2222222222222222222222222222222222222222"} 1`,
 				`channel_revision{channel="nixpkgs-unstable",revision="3333333333333333333333333333333333333333"} 1`,
