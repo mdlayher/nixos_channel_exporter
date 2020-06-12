@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mdlayher/nixos_channel_exporter/internal/channels"
 	"github.com/mdlayher/promtest"
@@ -69,6 +70,15 @@ func TestExporter(t *testing.T) {
 				switch r.URL.Path {
 				case "/channels/nixos-unstable/git-revision":
 					b = 0x11
+
+					// Although in reality every channel will have a
+					// Last-Modified header, we only set one in this case to
+					// ensure we handle the possible case where the header is
+					// missing.
+					w.Header().Set(
+						"Last-Modified",
+						time.Unix(10, 0).UTC().Format(http.TimeFormat),
+					)
 				case "/channels/nixos-unstable-small/git-revision":
 					b = 0x22
 				case "/channels/nixpkgs-unstable/git-revision":
@@ -85,6 +95,7 @@ func TestExporter(t *testing.T) {
 				`channel_revision{channel="nixos-unstable",revision="1111111111111111111111111111111111111111"} 1`,
 				`channel_revision{channel="nixos-unstable-small",revision="2222222222222222222222222222222222222222"} 1`,
 				`channel_revision{channel="nixpkgs-unstable",revision="3333333333333333333333333333333333333333"} 1`,
+				`channel_update_time{channel="nixos-unstable"} 10`,
 			},
 		},
 	}

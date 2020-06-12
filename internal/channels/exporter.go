@@ -18,7 +18,8 @@ var _ prometheus.Collector = &Exporter{}
 
 // An Exporter is a prometheus.Collector for NixOS channel metadata.
 type Exporter struct {
-	ChannelRevision *prometheus.Desc
+	ChannelRevision   *prometheus.Desc
+	ChannelUpdateTime *prometheus.Desc
 
 	base   url.URL
 	data   Data
@@ -55,6 +56,15 @@ func NewExporter(data Data, baseURL string, client *http.Client) (prometheus.Col
 			nil,
 		),
 
+		// TODO: consider adding unit _seconds.
+
+		ChannelUpdateTime: prometheus.NewDesc(
+			"channel_update_time",
+			"The UNIX timestamp of when a channel was last updated.",
+			[]string{"channel"},
+			nil,
+		),
+
 		base:   *base,
 		data:   data,
 		client: client,
@@ -65,6 +75,7 @@ func NewExporter(data Data, baseURL string, client *http.Client) (prometheus.Col
 func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	ds := []*prometheus.Desc{
 		e.ChannelRevision,
+		e.ChannelUpdateTime,
 	}
 
 	for _, d := range ds {
@@ -124,6 +135,17 @@ func (e *Exporter) collect(ctx context.Context, ch chan<- prometheus.Metric, cha
 		return fmt.Errorf("unexpected response: HTTP %d %s", res.StatusCode, res.Status)
 	}
 
+	// Check for a Last-Modified header and parse it if present.
+	var modified time.Time
+	if h := res.Header.Get("Last-Modified"); h != "" {
+		m, err := http.ParseTime(h)
+		if err != nil {
+			return fmt.Errorf("malformed Last-Modified header: %v", err)
+		}
+
+		modified = m
+	}
+
 	// The HTTP body should just contain a git commit hash, so assume it will
 	// not be very large in size.
 	rev, err := ioutil.ReadAll(io.LimitReader(res.Body, 128))
@@ -137,6 +159,15 @@ func (e *Exporter) collect(ctx context.Context, ch chan<- prometheus.Metric, cha
 		1,
 		channel, string(rev),
 	)
+
+	if !modified.IsZero() {
+		ch <- prometheus.MustNewConstMetric(
+			e.ChannelUpdateTime,
+			prometheus.GaugeValue,
+			float64(modified.Unix()),
+			channel,
+		)
+	}
 
 	return nil
 }
