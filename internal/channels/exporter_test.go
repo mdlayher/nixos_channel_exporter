@@ -15,7 +15,10 @@ import (
 	"github.com/mdlayher/promtest"
 )
 
+// TODO: test case for multiple scrapes where the first causes an error.
+
 func TestExporter(t *testing.T) {
+
 	tests := []struct {
 		name    string
 		d       channels.Data
@@ -44,6 +47,9 @@ func TestExporter(t *testing.T) {
 			},
 			// Technically OK due to no inputs.
 			ok: true,
+			metrics: []string{
+				`channel_request_failures_total 0`,
+			},
 		},
 		{
 			name: "multiple channels",
@@ -95,6 +101,7 @@ func TestExporter(t *testing.T) {
 				`channel_current{channel="nixos-unstable"} 1`,
 				`channel_current{channel="nixos-unstable-small"} 1`,
 				`channel_current{channel="nixpkgs-unstable"} 0`,
+				`channel_request_failures_total 0`,
 				`channel_revision{channel="nixos-unstable",revision="1111111111111111111111111111111111111111"} 1`,
 				`channel_revision{channel="nixos-unstable-small",revision="2222222222222222222222222222222222222222"} 1`,
 				`channel_revision{channel="nixpkgs-unstable",revision="3333333333333333333333333333333333333333"} 1`,

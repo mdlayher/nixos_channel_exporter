@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -18,9 +19,15 @@ var _ prometheus.Collector = &Exporter{}
 
 // An Exporter is a prometheus.Collector for NixOS channel metadata.
 type Exporter struct {
-	ChannelRevision   *prometheus.Desc
-	ChannelUpdateTime *prometheus.Desc
-	ChannelCurrent    *prometheus.Desc
+	// Atomics must come first.
+	failures uint32
+
+	ChannelRevision        *prometheus.Desc
+	ChannelUpdateTime      *prometheus.Desc
+	ChannelCurrent         *prometheus.Desc
+	ChannelRequestFailures *prometheus.Desc
+
+	// TODO: histogram of outgoing HTTP request times.
 
 	base   url.URL
 	data   Data
@@ -73,6 +80,13 @@ func NewExporter(data Data, baseURL string, client *http.Client) (prometheus.Col
 			nil,
 		),
 
+		ChannelRequestFailures: prometheus.NewDesc(
+			"channel_request_failures_total",
+			"Number of channel status requests which have failed",
+			nil,
+			nil,
+		),
+
 		base:   *base,
 		data:   data,
 		client: client,
@@ -85,6 +99,7 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 		e.ChannelRevision,
 		e.ChannelUpdateTime,
 		e.ChannelCurrent,
+		e.ChannelRequestFailures,
 	}
 
 	for _, d := range ds {
@@ -111,6 +126,9 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 
 		eg.Go(func() error {
 			if err := e.collect(ctx, ch, channel, meta); err != nil {
+				// Track the number of failures so we can also export that as a
+				// metric.
+				atomic.AddUint32(&e.failures, 1)
 				return fmt.Errorf("failed to fetch channel %q: %v", channel, err)
 			}
 
@@ -122,6 +140,12 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		log.Printf("error: %v", err)
 		ch <- prometheus.NewInvalidMetric(e.ChannelRevision, err)
 	}
+
+	ch <- prometheus.MustNewConstMetric(
+		e.ChannelRequestFailures,
+		prometheus.CounterValue,
+		float64(atomic.LoadUint32(&e.failures)),
+	)
 }
 
 func (e *Exporter) collect(ctx context.Context, ch chan<- prometheus.Metric, channel string, meta Channel) error {
