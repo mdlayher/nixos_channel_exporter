@@ -93,13 +93,12 @@ func (e *Exporter) collect(ch chan<- prometheus.Metric, channel string, meta Cha
 	}
 	defer res.Body.Close()
 
+	// The HTTP body should just contain a git commit hash, so assume it will
+	// not be very large in size.
 	rev, err := ioutil.ReadAll(io.LimitReader(res.Body, 128))
 	if err != nil {
 		return fmt.Errorf("failed to read HTTP channel revision body: %v", err)
 	}
-
-	log.Println(res)
-	log.Println(string(rev))
 
 	ch <- prometheus.MustNewConstMetric(
 		e.ChannelRevision,
