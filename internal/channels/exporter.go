@@ -1,6 +1,7 @@
 package channels
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/sync/errgroup"
 )
 
 var _ prometheus.Collector = &Exporter{}
@@ -72,22 +74,47 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 
 // Collect implements prometheus.Collector.
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
+	// Set a sane upper bound on the time that metrics collection and HTTP
+	// requests can take.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// If any of the goroutines return an error, that error will cancel this
+	// context, causing the other goroutines to bail out of their HTTP requests
+	// so we can more quickly report an error to Prometheus.
+	eg, ctx := errgroup.WithContext(ctx)
+
 	for channel, meta := range e.data.Channels {
-		if err := e.collect(ch, channel, meta); err != nil {
-			err := fmt.Errorf("failed to fetch channel %q: %v", channel, err)
-			log.Printf("error: %v", err)
-			ch <- prometheus.NewInvalidMetric(e.ChannelRevision, err)
-			continue
-		}
+		// Copies of range variables to pass into goroutines.
+		channel := channel
+		meta := meta
+
+		eg.Go(func() error {
+			if err := e.collect(ctx, ch, channel, meta); err != nil {
+				return fmt.Errorf("failed to fetch channel %q: %v", channel, err)
+			}
+
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		log.Printf("error: %v", err)
+		ch <- prometheus.NewInvalidMetric(e.ChannelRevision, err)
 	}
 }
 
-func (e *Exporter) collect(ch chan<- prometheus.Metric, channel string, meta Channel) error {
+func (e *Exporter) collect(ctx context.Context, ch chan<- prometheus.Metric, channel string, meta Channel) error {
 	// Make a copy to avoid mutating e.base.
 	addr := e.base
 	addr.Path = fmt.Sprintf("/channels/%s/git-revision", channel)
 
-	res, err := e.client.Get(addr.String())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, addr.String(), nil)
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP request: %v", err)
+	}
+
+	res, err := e.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to HTTP GET channel revision: %v", err)
 	}
